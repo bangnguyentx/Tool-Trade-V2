@@ -366,26 +366,26 @@ function calculateTFScoreICT(analysis) {
     let score = 0;
     
     // Market Structure (0-35 points) - GIỐNG HTML GỐC
-    score += analysis.marketStructure.trend !== 'neutral' ? 20 : 0;
-    score += analysis.marketStructure.breakOfStructure ? 10 : 0;
-    score += analysis.marketStructure.changeOfCharacter ? 5 : 0;
+    score += analysis.marketStructure.trend !== 'neutral' ? 25 : 0;
+    score += analysis.marketStructure.breakOfStructure ? 15 : 0;
+    score += analysis.marketStructure.changeOfCharacter ? 8 : 0;
     
     // Volume Analysis (0-25 points)
     if (analysis.volumeAnalysis.volumeDelta) {
-        score += Math.min(25, (analysis.volumeAnalysis.volumeDelta - 1) * 50);
+        score += Math.min(30, (analysis.volumeAnalysis.volumeDelta - 1) * 60);
     }
     
     // Order Blocks & FVG (0-35 points)
-    score += Math.min(20, analysis.orderBlocks.length * 3);
-    score += Math.min(15, analysis.fairValueGaps.length * 2);
+    score += Math.min(25, analysis.orderBlocks.length * 4);
+    score += Math.min(20, analysis.fairValueGaps.length * 3);
     
     // Liquidity (0-20 points)
     if (analysis.liquidityLevels.length > 0) {
-        score += 10;
+        score += 15;
         const nearLiquidity = analysis.liquidityLevels.some(level => 
             Math.abs(analysis.price - level.price) < analysis.atr * 0.5
         );
-        if (nearLiquidity) score += 10;
+        if (nearLiquidity) score += 15;
     }
     
     return Math.min(100, score);
