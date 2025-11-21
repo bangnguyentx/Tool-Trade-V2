@@ -687,12 +687,13 @@ async function analyzeSymbol(symbol) {
             direction,
             confidence: Math.round(confidence),
             entry: levels.entry.toFixed(4),
-            stopLoss: levels.sl.toFixed(4),
-            takeProfit: levels.tp.toFixed(4),
+            sl: levels.sl.toFixed(4),         // ✅ Đã sửa thành sl
+            tp: levels.tp.toFixed(4),         // ✅ Đã sửa thành tp
             rr: levels.rr,
             positionSize: positionData.size,
             maxLoss: positionData.maxLoss
         };
+
         
     } catch (error) {
         console.error(`Error analyzing ${symbol}:`, error);
