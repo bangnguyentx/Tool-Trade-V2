@@ -90,9 +90,11 @@ function getVietnamTime() {
 function formatSignalMessage(data, signalIndex, source = 'bot') {
     const icon = data.direction === 'LONG' ? '🟢' : '🔴';
     
-    // Định dạng số thập phân thông minh
+    // Định dạng số thập phân thông minh (Có xử lý lỗi)
     const fmt = (num) => {
+        if (num === undefined || num === null) return 'N/A'; // Bảo vệ chống lỗi
         const number = parseFloat(num);
+        if (isNaN(number)) return 'N/A';
         return number > 10 ? number.toFixed(2) : number.toFixed(4);
     };
 
