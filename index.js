@@ -62,7 +62,7 @@ let isAutoAnalysisRunning = false;
 // --- SERVER EXPRESS (KEEP-ALIVE) ---
 app.get('/', (req, res) => {
     res.json({ 
-        status: 'AI Trading Bot V2 is Running...',
+        status: 'AI Trading Bot V3 is Running...',
         subscribedUsers: subscribedUsers.size,
         lastSignalCount: signalCountToday
     });
@@ -213,7 +213,7 @@ function checkDailyGreeting() {
     // Kiểm tra nếu là 4:00 AM
     if (now.hours() === 4 && now.minutes() === 0) {
         signalCountToday = 0; // Reset đếm tín hiệu
-        const greetingMsg = "🌞 Chào ngày mới các nhà giao dịch! AI Trading Bot V2 đã sẵn sàng săn tìm cơ hội. Chúc mọi người Big Win! 🚀";
+        const greetingMsg = "🌞 Chào ngày mới các nhà giao dịch! AI Trading Bot V3 đã sẵn sàng săn tìm cơ hội. Chúc mọi người Big Win! 🚀";
         broadcastToAllUsers(greetingMsg);
         console.log('🌞 Đã gửi lời chào buổi sáng');
     }
@@ -251,7 +251,7 @@ bot.onText(/\/start/, (msg) => {
     subscribedUsers.set(chatId, userInfo);
     
     const userName = user.first_name || 'Trader';
-    const welcomeMsg = `👋 Chào ${userName}!\n🧠 ĐÂY LÀ TOOL AI TRADING V2.\n\n🧠TOOL AI là bản nâng cấp của bản thường, theo AI tối đa 3% risk.\n👑 Bot created by Hoàng Dũng: @HOANGDUNGG789\n\n📢 Bạn đã đăng ký nhận tín hiệu tự động!`;
+    const welcomeMsg = `👋 Chào ${userName}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🧠TOOL AI là bản nâng cấp của bản V2, theo AI tối đa 3% risk.\n👑 Bot created by Hoàng Dũng: @HOANGDUNGG789\n\n📢 Bạn đã đăng ký nhận tín hiệu tự động!`;
 
     const opts = {
         reply_markup: {
