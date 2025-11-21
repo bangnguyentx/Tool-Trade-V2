@@ -32,12 +32,25 @@ bot.on("polling_error", (err) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Danh sách 40 coin nổi tiếng để quét
+// TARGET_COINS TỐI ƯU - 60 COIN VOLATILITY CAO
 const TARGET_COINS = [
-    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'TRXUSDT', 'LINKUSDT', 'MATICUSDT',
-    'DOTUSDT', 'LTCUSDT', 'SHIBUSDT', 'AVAXUSDT', 'UNIUSDT', 'ATOMUSDT', 'XMRUSDT', 'ETCUSDT', 'XLMUSDT', 'BCHUSDT',
-    'FILUSDT', 'APTUSDT', 'NEARUSDT', 'ARBUSDT', 'OPUSDT', 'INJUSDT', 'RNDRUSDT', 'LDOUSDT', 'TIAUSDT', 'SUIUSDT',
-    'SEIUSDT', 'PEPEUSDT', 'FETUSDT', 'AGIXUSDT', 'GALAUSDT', 'SANDUSDT', 'MANAUSDT', 'AAVEUSDT', 'SNXUSDT', 'IMXUSDT'
+    // === TOP 20 CAP LỚN (Stable) ===
+    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+    'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'TRXUSDT', 'LINKUSDT',
+    'MATICUSDT', 'LTCUSDT', 'ATOMUSDT', 'ETCUSDT', 'XLMUSDT',
+    'BCHUSDT', 'FILUSDT', 'ALGOUSDT', 'NEARUSDT', 'UNIUSDT',
+    
+    // === TOP 20 MEME/VOLATILE (Nhiều tín hiệu) ===
+    'DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT',
+    'WIFUSDT', 'MEMEUSDT', 'BOMEUSDT', 'POPCATUSDT', 'MYROUSDT',
+    'DOGUSDT', 'TOSHIUSDT', 'MOGUSDT', 'TURBOUSDT', 'NFPUSDT',
+    ' PEOPLEUSDT', 'AIDOGEUSDT', 'SMURFCATUSDT', 'TRUMPUSDT', 'WSMUSDT',
+    
+    // === TOP 20 ALTCOIN TRENDING ===
+    'APTUSDT', 'ARBUSDT', 'OPUSDT', 'SUIUSDT', 'SEIUSDT',
+    'TIAUSDT', 'INJUSDT', 'RNDRUSDT', 'FETUSDT', 'AGIXUSDT',
+    'OCEANUSDT', 'JASMYUSDT', 'GALAUSDT', 'SANDUSDT', 'MANAUSDT',
+    'ENJUSDT', 'CHZUSDT', 'APEUSDT', 'GMTUSDT', 'LDOUSDT'
 ];
 
 // --- BIẾN TRẠNG THÁI ---
@@ -206,7 +219,7 @@ function checkDailyGreeting() {
 
 // Thiết lập Interval: 
 // 1. Quét tín hiệu 2.5 tiếng/lần (2.5 * 60 * 60 * 1000 ms)
-const ANALYSIS_INTERVAL = 2.5 * 60 * 60 * 1000;
+const ANALYSIS_INTERVAL = 2 * 60 * 60 * 1000;
 setInterval(runAutoAnalysis, ANALYSIS_INTERVAL);
 
 // 2. Kiểm tra giờ chào mỗi phút
@@ -282,7 +295,7 @@ bot.on('message', async (msg) => {
                          `👥 Users đăng ký: <b>${subscribedUsers.size}</b>\n` +
                          `📈 Tín hiệu hôm nay: <b>${signalCountToday}</b>\n` +
                          `⏰ Giờ hoạt động: <b>04:00 - 23:30</b>\n` +
-                         `🔄 Chu kỳ quét: <b>2.5 giờ/lần</b>\n` +
+                         `🔄 Chu kỳ quét: <b>2 giờ/lần</b>\n` +
                          `🎯 Ngưỡng tin cậy: <b>60-100%</b>`;
         
         bot.sendMessage(chatId, statusMsg, { parse_mode: 'HTML' });
@@ -403,5 +416,5 @@ bot.onText(/\/users/, (msg) => {
 });
 
 console.log('🤖 Bot is running with improved polling...');
-console.log(`⏰ Auto analysis every 2.5 hours (04:00 - 23:30)`);
+console.log(`⏰ Auto analysis every 2 hours (04:00 - 23:30)`);
 console.log(`🎯 Min confidence: 60% | Target coins: ${TARGET_COINS.length}`);
