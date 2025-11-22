@@ -175,7 +175,6 @@ async function broadcastToAllUsers(message) {
 }
 
 // --- AUTO ANALYSIS ---
-
 async function runAutoAnalysis() {
     if (isAutoAnalysisRunning) {
         console.log('⏳ Auto analysis đang chạy, bỏ qua...');
@@ -206,9 +205,9 @@ async function runAutoAnalysis() {
         for (const coin of TARGET_COINS) {
             analyzedCount++;
             
-            // Dynamic delay: tăng dần khi phân tích nhiều coin
-            const dynamicDelay = 3000 + (Math.floor(analyzedCount / 10) * 1000); // 3-8 giây
-            await new Promise(r => setTimeout(r, dynamicDelay));
+            // TĂNG DELAY LÊN 8-12 GIÂY để tránh rate limit
+            const baseDelay = 8000 + Math.random() * 4000; // 8-12 giây ngẫu nhiên
+            await new Promise(r => setTimeout(r, baseDelay));
 
             try {
                 console.log(`🔍 Analyzing ${coin} (${analyzedCount}/${TARGET_COINS.length})...`);
@@ -223,22 +222,16 @@ async function runAutoAnalysis() {
                         console.log(`✅ Signal found: ${coin} ${result.direction} (${result.confidence}%)`);
                         await broadcastToAllUsers(msg);
                         
-                        // Delay sau khi gửi tín hiệu thành công
+                        // Delay sau khi gửi tín hiệu
                         await new Promise(r => setTimeout(r, 3000));
                     } else {
                         console.log(`⏭️ Skip ${coin}: Confidence ${result.confidence}% (need 60-100%)`);
                     }
                 } else {
-                    console.log(`➖ No signal for ${coin}: ${result?.direction}`);
+                    console.log(`➖ No signal for ${coin}: ${result?.direction} - ${result?.reason}`);
                 }
             } catch (coinError) {
                 console.error(`❌ Error analyzing ${coin}:`, coinError.message);
-                
-                // Nếu lỗi quá nhiều, dừng phân tích tạm thời
-                if (coinError.message.includes('418') || coinError.message.includes('429')) {
-                    console.log('🚨 Rate limit detected, waiting 30 seconds...');
-                    await new Promise(r => setTimeout(r, 30000));
-                }
                 continue;
             }
         }
@@ -264,8 +257,6 @@ function checkDailyGreeting() {
 }
 
 // --- BOT COMMANDS ---
-
-// /start - ĐĂNG KÝ NHẬN TIN NHẮN
 // /start - ĐĂNG KÝ NHẬN TIN NHẮN
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
