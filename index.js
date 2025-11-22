@@ -77,12 +77,14 @@ app.listen(PORT, () => {
 
 // --- CÁC HÀM TIỆN ÍCH ---
 
+// --- CÁC HÀM TIỆN ÍCH ---
+
 function getVietnamTime() {
     return moment().tz("Asia/Ho_Chi_Minh");
 }
 
 function isAdmin(user) {
-    return ADMIN_IDS.includes(user.username);
+    return ADMIN_IDS.includes(user.id.toString());
 }
 
 function generateKey(length = 16) {
@@ -252,6 +254,7 @@ function checkDailyGreeting() {
 // --- BOT COMMANDS ---
 
 // /start - ĐĂNG KÝ NHẬN TIN NHẮN
+// /start - ĐĂNG KÝ NHẬN TIN NHẮN
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const user = msg.from;
@@ -288,7 +291,7 @@ bot.onText(/\/start/, (msg) => {
         };
 
         bot.sendMessage(chatId, welcomeMsg, opts);
-        console.log(`✅ Admin subscribed: ${user.username || user.first_name}`);
+        console.log(`✅ Admin subscribed: ${user.username || user.first_name} (ID: ${user.id})`);
     } else {
         // User thường - chỉ gửi lời chào
         const welcomeMsg = `👋 Chào ${user.first_name || 'Trader'}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🔐 Bạn cần kích hoạt bằng mã code để sử dụng đầy đủ tính năng.\n\n📝 Sử dụng lệnh: /key <mã_code>`;
