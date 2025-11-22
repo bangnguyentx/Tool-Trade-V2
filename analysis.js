@@ -17,7 +17,7 @@ const TIMEFRAMES = [
     { label: '15M', interval: '15m', weight: 0.8 }
 ];
 
-// --- CÁC HÀM PHÂN TÍCH NÂNG CAO (GIỐNG HTML GỐC) ---
+// --- CÁC HÀM PHÂN TÍCH NÂNG CAO ---
 
 async function loadCandles(symbol, interval, limit = 500) {
     try {
@@ -314,10 +314,13 @@ function analyzeTimeframeICT(candles, timeframe) {
 function calculateTrendStrength(marketStructure) {
     if (marketStructure.swingHighs.length < 2 || marketStructure.swingLows.length < 2) return 0;
     
-    const highSlope = (marketStructure.swingHighs[1].price - marketStructure.swingHighs[0].price) / 
-                    (marketStructure.swingHighs[1].index - marketStructure.swingHighs[0].index);
-    const lowSlope = (marketStructure.swingLows[1].price - marketStructure.swingLows[0].price) / 
-                   (marketStructure.swingLows[1].index - marketStructure.swingLows[0].index);
+    const recentHighs = marketStructure.swingHighs.slice(-2);
+    const recentLows = marketStructure.swingLows.slice(-2);
+    
+    const highSlope = (recentHighs[1].price - recentHighs[0].price) / 
+                    (recentHighs[1].index - recentHighs[0].index);
+    const lowSlope = (recentLows[1].price - recentLows[0].price) / 
+                   (recentLows[1].index - recentLows[0].index);
     
     return Math.abs(highSlope + lowSlope) / 2;
 }
@@ -365,7 +368,7 @@ function getTimeframeWeight(tf) {
 function calculateTFScoreICT(analysis) {
     let score = 0;
     
-    // Market Structure (0-35 points) - GIỐNG HTML GỐC
+    // Market Structure (0-35 points)
     score += analysis.marketStructure.trend !== 'neutral' ? 25 : 0;
     score += analysis.marketStructure.breakOfStructure ? 15 : 0;
     score += analysis.marketStructure.changeOfCharacter ? 8 : 0;
@@ -593,6 +596,38 @@ function calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframe
     }
 }
 
+function validateLevels(entry, sl, tp, currentPrice, atr) {
+    const maxDistance = atr * 2.5;
+    
+    // Kiểm tra SL không quá xa
+    if (Math.abs(entry - sl) > maxDistance) {
+        if (entry > sl) {
+            sl = entry - (atr * 1.0);
+        } else {
+            sl = entry + (atr * 1.0);
+        }
+    }
+    
+    // Kiểm tra TP không quá xa
+    if (Math.abs(entry - tp) > maxDistance) {
+        if (entry < tp) {
+            tp = entry + (atr * 1.5);
+        } else {
+            tp = entry - (atr * 1.5);
+        }
+    }
+    
+    // Đảm bảo R:R hợp lý (0.8 đến 3.0)
+    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    if (rr < 0.8) {
+        tp = entry + (entry - sl) * 1.0;
+    } else if (rr > 3.0) {
+        tp = entry + (entry - sl) * 2.0;
+    }
+    
+    return { entry, sl, tp, rr: rr.toFixed(2) };
+}
+
 function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeAnalysis) {
     const atr = analysis.atr;
     
@@ -636,46 +671,6 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
     };
 }
 
-function validateLevels(entry, sl, tp, currentPrice, atr) {
-    const maxDistance = atr * 2.5;
-    
-    if (Math.abs(entry - sl) > maxDistance) {
-        if (entry > sl) {
-            sl = entry - (atr * 1.0);
-        } else {
-            sl = entry + (atr * 1.0);
-        }
-    }
-    
-    if (Math.abs(entry - tp) > maxDistance) {
-        if (entry < tp) {
-            tp = entry + (atr * 1.5);
-        } else {
-            tp = entry - (atr * 1.5);
-        }
-    }
-    
-    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
-    if (rr < 0.8) {
-        tp = entry + (entry - sl) * 1.0;
-    } else if (rr > 3.0) {
-        tp = entry + (entry - sl) * 2.0;
-    }
-    
-    return { entry, sl, tp, rr: rr.toFixed(2) };
-}
-    
-    // Đảm bảo R:R hợp lý (0.8 đến 3.0)
-    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
-    if (rr < 0.8) {
-        tp = entry + (entry - sl) * 1.0; // Điều chỉnh để R:R = 1.0
-    } else if (rr > 3.0) {
-        tp = entry + (entry - sl) * 2.0; // Giới hạn R:R tối đa = 2.0
-    }
-    
-    return { entry, sl, tp, rr: rr.toFixed(2) };
-}
-
 // --- HÀM CHÍNH ĐỂ GỌI TỪ BÊN NGOÀI ---
 
 async function analyzeSymbol(symbol) {
@@ -692,16 +687,19 @@ async function analyzeSymbol(symbol) {
         for (const tf of TIMEFRAMES) {
             try {
                 const candles = await loadCandles(symbol, tf.interval, 300);
-                results.timeframes[tf.label] = {
-                    candles,
-                    price: candles[candles.length - 1].close,
-                    analysis: analyzeTimeframeICT(candles, tf.label)
-                };
+                if (candles && candles.length > 0) {
+                    results.timeframes[tf.label] = {
+                        candles,
+                        price: candles[candles.length - 1].close,
+                        analysis: analyzeTimeframeICT(candles, tf.label)
+                    };
+                }
             } catch (error) {
-                console.error(`Error analyzing ${tf.label}:`, error.message);
+                console.error(`Error analyzing ${symbol} ${tf.label}:`, error.message);
             }
         }
 
+        // Generate trading signals với ICT
         const timeframes = Object.values(results.timeframes);
         if (timeframes.length === 0) {
             return {
@@ -716,6 +714,7 @@ async function analyzeSymbol(symbol) {
         const bias = calculateMultiTFBias(timeframes);
         const confidence = calculateRealConfidence(results);
 
+        // Check minimum confidence
         if (confidence < 60) {
             return {
                 symbol,
@@ -736,18 +735,29 @@ async function analyzeSymbol(symbol) {
             };
         }
         
-        const primaryAnalysis = timeframes.find(tf => tf.analysis.confidence > 70) || timeframes[0];
+        // Calculate smart levels
+        const primaryAnalysis = timeframes.find(tf => tf.analysis && tf.analysis.confidence > 70) || timeframes[0];
+        if (!primaryAnalysis.analysis) {
+            return {
+                symbol,
+                direction: 'NO_TRADE',
+                confidence: 0,
+                reason: 'No valid analysis available'
+            };
+        }
+        
         const levels = calculateSmartLevels(direction, currentPrice, primaryAnalysis.analysis, results);
         
+        // Calculate position size
         const positionData = calculatePositionSize(2, 1000, parseFloat(levels.entry), parseFloat(levels.sl), direction);
         
         return {
             symbol,
             direction,
             confidence: Math.round(confidence),
-            entry: levels.entry.toFixed(4),
-            sl: levels.sl.toFixed(4),
-            tp: levels.tp.toFixed(4),
+            entry: parseFloat(levels.entry).toFixed(4),
+            sl: parseFloat(levels.sl).toFixed(4),
+            tp: parseFloat(levels.tp).toFixed(4),
             rr: levels.rr,
             positionSize: positionData.size,
             maxLoss: positionData.maxLoss
