@@ -20,18 +20,43 @@ const TIMEFRAMES = [
 // --- CÁC HÀM PHÂN TÍCH NÂNG CAO ---
 
 async function loadCandles(symbol, interval, limit = 500) {
-    try {
-        const response = await axios.get(BINANCE_API.klines(symbol, interval, limit));
-        return response.data.map(candle => ({
-            open: parseFloat(candle[1]),
-            high: parseFloat(candle[2]),
-            low: parseFloat(candle[3]),
-            close: parseFloat(candle[4]),
-            vol: parseFloat(candle[5]),
-            t: candle[0]
-        }));
-    } catch (error) {
-        throw new Error(`Failed to load candles for ${symbol} ${interval}: ${error.message}`);
+    let retryCount = 0;
+    const maxRetries = 3;
+    const baseDelay = 2000; // 2 giây
+
+    while (retryCount < maxRetries) {
+        try {
+            const response = await axios.get(BINANCE_API.klines(symbol, interval, limit), {
+                timeout: 10000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+            
+            if (response.status === 200 && response.data) {
+                return response.data.map(candle => ({
+                    open: parseFloat(candle[1]),
+                    high: parseFloat(candle[2]),
+                    low: parseFloat(candle[3]),
+                    close: parseFloat(candle[4]),
+                    vol: parseFloat(candle[5]),
+                    t: candle[0]
+                }));
+            }
+            
+        } catch (error) {
+            retryCount++;
+            console.log(`❌ Lỗi ${error.response?.status || error.code} cho ${symbol} ${interval} (lần ${retryCount}/${maxRetries}): ${error.message}`);
+            
+            if (retryCount >= maxRetries) {
+                throw new Error(`Failed to load candles for ${symbol} ${interval} after ${maxRetries} retries: ${error.message}`);
+            }
+            
+            // Tăng delay theo số lần retry (exponential backoff)
+            const delay = baseDelay * Math.pow(2, retryCount);
+            console.log(`⏳ Chờ ${delay/1000}s trước khi thử lại...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
 }
 
