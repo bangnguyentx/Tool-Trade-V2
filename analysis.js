@@ -506,70 +506,95 @@ function findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis) {
 
 function calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis) {
     const atr = analysis.atr;
+    const currentPrice = analysis.price;
     
     if (direction === 'LONG') {
         const supports = analysis.liquidityLevels
             .filter(level => level.type === 'support')
             .map(level => level.price)
-            .filter(price => price < entry)
+            .filter(price => price < entry && price >= entry - (atr * 1.5)) // Giới hạn trong 1.5 ATR
             .sort((a, b) => b - a);
         
         if (supports.length > 0) {
             const nearestSupport = supports[0];
-            const atrBasedSL = entry - (atr * 1.5);
+            const atrBasedSL = entry - (atr * 0.6); // Giảm từ 1.5 xuống 0.6 ATR
             return Math.min(nearestSupport, atrBasedSL);
         }
         
-        return entry - (atr * 2);
+        return entry - (atr * 0.8); // Giảm từ 2.0 xuống 0.8 ATR
+        
     } else {
         const resistances = analysis.liquidityLevels
             .filter(level => level.type === 'resistance')
             .map(level => level.price)
-            .filter(price => price > entry)
+            .filter(price => price > entry && price <= entry + (atr * 1.5))
             .sort((a, b) => a - b);
         
         if (resistances.length > 0) {
             const nearestResistance = resistances[0];
-            const atrBasedSL = entry + (atr * 1.5);
+            const atrBasedSL = entry + (atr * 0.6);
             return Math.max(nearestResistance, atrBasedSL);
         }
         
-        return entry + (atr * 2);
+        return entry + (atr * 0.8);
     }
 }
 
 function calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis) {
     const risk = Math.abs(entry - sl);
     const atr = analysis.atr;
+    const currentPrice = analysis.price;
     
     if (direction === 'LONG') {
-        const resistances = analysis.liquidityLevels
+        // Tìm kháng cự GẦN NHẤT trong phạm vi hợp lý
+        const nearbyResistances = analysis.liquidityLevels
             .filter(level => level.type === 'resistance')
             .map(level => level.price)
-            .filter(price => price > entry)
-            .sort((a, b) => a - b);
+            .filter(price => price > entry && price <= entry + (atr * 1.2)) // Giới hạn trong 1.2 ATR
+            .sort((a, b) => a - b); // Sắp xếp từ nhỏ đến lớn
         
-        if (resistances.length > 0) {
-            const nearestResistance = resistances[0];
-            const minTP = entry + risk * 1.5;
-            return Math.max(nearestResistance, minTP);
+        let tp;
+        
+        if (nearbyResistances.length > 0) {
+            // Lấy kháng cự GẦN nhất
+            tp = nearbyResistances[0];
+        } else {
+            // Fallback: TP dựa trên ATR với tỷ lệ hợp lý
+            tp = entry + (atr * 0.8); // Giảm từ 2.5 risk xuống 0.8 ATR
         }
         
-        return entry + risk * 2.5;
+        // ĐẢM BẢO R:R TỐI THIỂU 1:1 VÀ TỐI ĐA 2:1
+        const minTP = entry + risk * 1.2;  // R:R 1.2
+        const maxTP = entry + risk * 2.0;  // R:R tối đa 2.0
+        
+        tp = Math.max(tp, minTP); // Đảm bảo tối thiểu
+        tp = Math.min(tp, maxTP); // Giới hạn tối đa
+        
+        return tp;
+        
     } else {
-        const supports = analysis.liquidityLevels
+        // Tương tự cho SHORT
+        const nearbySupports = analysis.liquidityLevels
             .filter(level => level.type === 'support')
             .map(level => level.price)
-            .filter(price => price < entry)
-            .sort((a, b) => b - a);
+            .filter(price => price < entry && price >= entry - (atr * 1.2))
+            .sort((a, b) => b - a); // Sắp xếp từ lớn đến nhỏ
         
-        if (supports.length > 0) {
-            const nearestSupport = supports[0];
-            const minTP = entry - risk * 1.5;
-            return Math.min(nearestSupport, minTP);
+        let tp;
+        
+        if (nearbySupports.length > 0) {
+            tp = nearbySupports[0];
+        } else {
+            tp = entry - (atr * 0.8);
         }
         
-        return entry - risk * 2.5;
+        const minTP = entry - risk * 1.2;
+        const maxTP = entry - risk * 2.0;
+        
+        tp = Math.min(tp, minTP);
+        tp = Math.max(tp, maxTP);
+        
+        return tp;
     }
 }
 
@@ -581,22 +606,28 @@ function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeA
         const sl = calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis);
         const tp = calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis);
         
+        // VALIDATE và điều chỉnh levels
+        const validated = validateLevels(entry, sl, tp, currentPrice, atr);
+        
         return { 
-            entry: entry,
-            sl: sl,
-            tp: tp,
-            rr: ((tp - entry) / (entry - sl)).toFixed(2)
+            entry: validated.entry,
+            sl: validated.sl,
+            tp: validated.tp,
+            rr: validated.rr
         };
     } else {
+        // Tương tự cho SHORT
         const entry = findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis);
         const sl = calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis);
         const tp = calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis);
         
+        const validated = validateLevels(entry, sl, tp, currentPrice, atr);
+        
         return { 
-            entry: entry,
-            sl: sl,
-            tp: tp,
-            rr: ((entry - tp) / (sl - entry)).toFixed(2)
+            entry: validated.entry,
+            sl: validated.sl,
+            tp: validated.tp,
+            rr: validated.rr
         };
     }
 }
@@ -610,6 +641,38 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
         size: size,
         maxLoss: riskAmount.toFixed(2)
     };
+}
+
+function validateLevels(entry, sl, tp, currentPrice, atr) {
+    const maxDistance = atr * 2.5; // Khoảng cách tối đa 2.5 ATR
+    
+    // Kiểm tra SL không quá xa
+    if (Math.abs(entry - sl) > maxDistance) {
+        if (entry > sl) { // LONG
+            sl = entry - (atr * 1.0);
+        } else { // SHORT
+            sl = entry + (atr * 1.0);
+        }
+    }
+    
+    // Kiểm tra TP không quá xa
+    if (Math.abs(entry - tp) > maxDistance) {
+        if (entry < tp) { // LONG
+            tp = entry + (atr * 1.5);
+        } else { // SHORT
+            tp = entry - (atr * 1.5);
+        }
+    }
+    
+    // Đảm bảo R:R hợp lý (0.8 đến 3.0)
+    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    if (rr < 0.8) {
+        tp = entry + (entry - sl) * 1.0; // Điều chỉnh để R:R = 1.0
+    } else if (rr > 3.0) {
+        tp = entry + (entry - sl) * 2.0; // Giới hạn R:R tối đa = 2.0
+    }
+    
+    return { entry, sl, tp, rr: rr.toFixed(2) };
 }
 
 // --- HÀM CHÍNH ĐỂ GỌI TỪ BÊN NGOÀI ---
