@@ -1,14 +1,28 @@
 const axios = require('axios');
 
-// Cấu hình API
-const BINANCE_API = {
-    klines: (symbol, interval, limit = 500) => 
-        `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
-    price: (symbol) => 
-        `https://fapi.binance.com/fapi/v1/ticker/price?symbol=${symbol}`,
-    ticker24h: (symbol) => 
-        `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${symbol}`
-};
+// --- MULTIPLE DATA SOURCES ---
+const DATA_SOURCES = [
+    {
+        name: 'Binance Main',
+        klines: (symbol, interval, limit = 500) => 
+            `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+        priority: 1
+    },
+    {
+        name: 'Binance Backup 1',
+        klines: (symbol, interval, limit = 500) => 
+            `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+        priority: 2
+    },
+    {
+        name: 'Bybit Backup',
+        klines: (symbol, interval, limit = 500) => {
+            const mapping = { '1d': 'D', '4h': '240', '1h': '60', '15m': '15' };
+            return `https://api.bybit.com/v5/market/kline?category=linear&symbol=${symbol}&interval=${mapping[interval] || '60'}&limit=${limit}`;
+        },
+        priority: 3
+    }
+];
 
 const TIMEFRAMES = [
     { label: 'D1', interval: '1d', weight: 1.5 },
@@ -17,51 +31,72 @@ const TIMEFRAMES = [
     { label: '15M', interval: '15m', weight: 0.8 }
 ];
 
-// --- CÁC HÀM PHÂN TÍCH NÂNG CAO ---
-
+// --- SMART CANDLE LOADER VỚI MULTI-SOURCE FALLBACK ---
 async function loadCandles(symbol, interval, limit = 500) {
-    let retryCount = 0;
-    const maxRetries = 3;
-    const baseDelay = 2000; // 2 giây
-
-    while (retryCount < maxRetries) {
+    const sources = [...DATA_SOURCES].sort((a, b) => a.priority - b.priority);
+    
+    for (const source of sources) {
         try {
-            const response = await axios.get(BINANCE_API.klines(symbol, interval, limit), {
+            console.log(`📡 Thử nguồn: ${source.name} cho ${symbol} ${interval}`);
+            
+            const url = source.klines(symbol, interval, limit);
+            const response = await axios.get(url, {
                 timeout: 10000,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/json'
                 }
             });
-            
+
             if (response.status === 200 && response.data) {
-                return response.data.map(candle => ({
-                    open: parseFloat(candle[1]),
-                    high: parseFloat(candle[2]),
-                    low: parseFloat(candle[3]),
-                    close: parseFloat(candle[4]),
-                    vol: parseFloat(candle[5]),
-                    t: candle[0]
-                }));
+                let candles;
+                
+                // Xử lý định dạng response khác nhau
+                if (source.name.includes('Bybit')) {
+                    // Bybit response format
+                    candles = response.data.result.list.map(candle => ({
+                        open: parseFloat(candle[1]),
+                        high: parseFloat(candle[2]),
+                        low: parseFloat(candle[3]),
+                        close: parseFloat(candle[4]),
+                        vol: parseFloat(candle[5]),
+                        t: parseFloat(candle[0])
+                    })).reverse();
+                } else {
+                    // Binance format
+                    candles = response.data.map(candle => ({
+                        open: parseFloat(candle[1]),
+                        high: parseFloat(candle[2]),
+                        low: parseFloat(candle[3]),
+                        close: parseFloat(candle[4]),
+                        vol: parseFloat(candle[5]),
+                        t: candle[0]
+                    }));
+                }
+
+                if (candles.length > 0) {
+                    console.log(`✅ Thành công với ${source.name}: ${candles.length} nến`);
+                    return candles;
+                }
             }
-            
         } catch (error) {
-            retryCount++;
-            console.log(`❌ Lỗi ${error.response?.status || error.code} cho ${symbol} ${interval} (lần ${retryCount}/${maxRetries}): ${error.message}`);
+            console.log(`❌ ${source.name} thất bại: ${error.response?.status || error.code}`);
             
-            if (retryCount >= maxRetries) {
-                throw new Error(`Failed to load candles for ${symbol} ${interval} after ${maxRetries} retries: ${error.message}`);
+            // Nếu là lỗi 418, chờ lâu hơn trước khi thử nguồn tiếp theo
+            if (error.response?.status === 418) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
             
-            // Tăng delay theo số lần retry (exponential backoff)
-            const delay = baseDelay * Math.pow(2, retryCount);
-            console.log(`⏳ Chờ ${delay/1000}s trước khi thử lại...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            continue; // Thử nguồn tiếp theo
         }
     }
+    
+    throw new Error(`Tất cả nguồn đều thất bại cho ${symbol} ${interval}`);
 }
 
+// --- CÁC HÀM PHÂN TÍCH GIỮ NGUYÊN ---
 function calculateATR(candles, period = 14) {
-    if (candles.length < period + 1) return 0;
+    if (!candles || candles.length < period + 1) return 0;
     
     const trValues = [];
     for (let i = 1; i < candles.length; i++) {
@@ -98,6 +133,10 @@ function isSwingLow(lows, index, lookback = 3) {
 }
 
 function analyzeAdvancedMarketStructure(candles) {
+    if (!candles || candles.length < 10) {
+        return { swingHighs: [], swingLows: [], trend: 'neutral', breakOfStructure: false, changeOfCharacter: false };
+    }
+
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
     
@@ -109,25 +148,15 @@ function analyzeAdvancedMarketStructure(candles) {
         changeOfCharacter: false
     };
     
-    // Tìm swing points
     for (let i = 3; i < candles.length - 3; i++) {
         if (isSwingHigh(highs, i)) {
-            structure.swingHighs.push({
-                index: i,
-                price: highs[i],
-                time: candles[i].t
-            });
+            structure.swingHighs.push({ index: i, price: highs[i], time: candles[i].t });
         }
         if (isSwingLow(lows, i)) {
-            structure.swingLows.push({
-                index: i,
-                price: lows[i],
-                time: candles[i].t
-            });
+            structure.swingLows.push({ index: i, price: lows[i], time: candles[i].t });
         }
     }
     
-    // Xác định trend
     if (structure.swingHighs.length >= 2 && structure.swingLows.length >= 2) {
         const recentHighs = structure.swingHighs.slice(-2);
         const recentLows = structure.swingLows.slice(-2);
@@ -139,7 +168,6 @@ function analyzeAdvancedMarketStructure(candles) {
         }
     }
     
-    // Kiểm tra Break of Structure và Change of Character
     structure.breakOfStructure = detectBreakOfStructure(structure);
     structure.changeOfCharacter = detectChangeOfCharacter(structure);
     
@@ -175,34 +203,22 @@ function detectChangeOfCharacter(structure) {
 }
 
 function findOrderBlocks(candles) {
+    if (!candles || candles.length < 3) return [];
+    
     const blocks = [];
     
     for (let i = 1; i < candles.length - 1; i++) {
         const current = candles[i];
         const next = candles[i + 1];
         
-        // Bearish Order Block
         if (current.close < current.open && next.close < next.open && 
             Math.abs(next.close - next.open) > Math.abs(current.close - current.open) * 1.5) {
-            blocks.push({
-                type: 'bearish',
-                high: current.high,
-                low: current.low,
-                time: current.t,
-                strength: Math.random() * 0.5 + 0.5
-            });
+            blocks.push({ type: 'bearish', high: current.high, low: current.low, time: current.t, strength: 0.7 });
         }
         
-        // Bullish Order Block
         if (current.close > current.open && next.close > next.open && 
             Math.abs(next.close - next.open) > Math.abs(current.close - current.open) * 1.5) {
-            blocks.push({
-                type: 'bullish',
-                high: current.high,
-                low: current.low,
-                time: current.t,
-                strength: Math.random() * 0.5 + 0.5
-            });
+            blocks.push({ type: 'bullish', high: current.high, low: current.low, time: current.t, strength: 0.7 });
         }
     }
     
@@ -210,6 +226,8 @@ function findOrderBlocks(candles) {
 }
 
 function findFairValueGaps(candles) {
+    if (!candles || candles.length < 3) return [];
+    
     const gaps = [];
     
     for (let i = 1; i < candles.length - 1; i++) {
@@ -217,26 +235,12 @@ function findFairValueGaps(candles) {
         const curr = candles[i];
         const next = candles[i + 1];
         
-        // Bullish FVG
         if (curr.low > Math.max(prev.high, next.high)) {
-            gaps.push({
-                type: 'bullish',
-                high: Math.min(prev.low, next.low),
-                low: curr.high,
-                time: curr.t,
-                strength: Math.random() * 0.5 + 0.5
-            });
+            gaps.push({ type: 'bullish', high: Math.min(prev.low, next.low), low: curr.high, time: curr.t, strength: 0.6 });
         }
         
-        // Bearish FVG
         if (curr.high < Math.min(prev.low, next.low)) {
-            gaps.push({
-                type: 'bearish',
-                high: curr.low,
-                low: Math.max(prev.high, next.high),
-                time: curr.t,
-                strength: Math.random() * 0.5 + 0.5
-            });
+            gaps.push({ type: 'bearish', high: curr.low, low: Math.max(prev.high, next.high), time: curr.t, strength: 0.6 });
         }
     }
     
@@ -244,22 +248,25 @@ function findFairValueGaps(candles) {
 }
 
 function analyzeVolumeProfile(candles) {
+    if (!candles || candles.length === 0) {
+        return { poc: 0, totalVolume: 0, averageVolume: 0, volumeDelta: 1 };
+    }
+
     const volumeByPrice = {};
     let totalVolume = 0;
     
-    // Simplified volume profile
     candles.forEach(candle => {
         const range = candle.high - candle.low;
+        if (range === 0) return;
+        
         const step = range / 10;
         for (let i = 0; i < 10; i++) {
             const priceLevel = (candle.low + step * i).toFixed(2);
-            if (!volumeByPrice[priceLevel]) volumeByPrice[priceLevel] = 0;
-            volumeByPrice[priceLevel] += candle.vol / 10;
+            volumeByPrice[priceLevel] = (volumeByPrice[priceLevel] || 0) + (candle.vol / 10);
         }
         totalVolume += candle.vol;
     });
     
-    // Find POC (simplified)
     let poc = 0;
     let maxVolume = 0;
     for (const [price, volume] of Object.entries(volumeByPrice)) {
@@ -278,33 +285,26 @@ function analyzeVolumeProfile(candles) {
 }
 
 function calculateVolumeDelta(candles) {
+    if (!candles || candles.length < 20) return 1;
+    
     const recent = candles.slice(-5).reduce((sum, c) => sum + c.vol, 0) / 5;
     const older = candles.slice(-20, -5).reduce((sum, c) => sum + c.vol, 0) / 15;
-    return recent / older;
+    return older === 0 ? 1 : recent / older;
 }
 
 function findLiquidityLevels(candles) {
+    if (!candles || candles.length < 10) return [];
+    
     const levels = [];
     const highs = candles.map(c => c.high);
     const lows = candles.map(c => c.low);
     
-    // Find recent swing highs and lows as liquidity levels
     for (let i = 5; i < candles.length - 5; i++) {
         if (isSwingHigh(highs, i, 2)) {
-            levels.push({
-                type: 'resistance',
-                price: highs[i],
-                time: candles[i].t,
-                strength: 'strong'
-            });
+            levels.push({ type: 'resistance', price: highs[i], time: candles[i].t, strength: 'strong' });
         }
         if (isSwingLow(lows, i, 2)) {
-            levels.push({
-                type: 'support',
-                price: lows[i],
-                time: candles[i].t,
-                strength: 'strong'
-            });
+            levels.push({ type: 'support', price: lows[i], time: candles[i].t, strength: 'strong' });
         }
     }
     
@@ -312,7 +312,7 @@ function findLiquidityLevels(candles) {
 }
 
 function analyzeTimeframeICT(candles, timeframe) {
-    if (candles.length === 0) return null;
+    if (!candles || candles.length === 0) return null;
     
     const price = candles[candles.length - 1].close;
     const marketStructure = analyzeAdvancedMarketStructure(candles);
@@ -342,18 +342,17 @@ function calculateTrendStrength(marketStructure) {
     const recentHighs = marketStructure.swingHighs.slice(-2);
     const recentLows = marketStructure.swingLows.slice(-2);
     
-    const highSlope = (recentHighs[1].price - recentHighs[0].price) / 
-                    (recentHighs[1].index - recentHighs[0].index);
-    const lowSlope = (recentLows[1].price - recentLows[0].price) / 
-                   (recentLows[1].index - recentLows[0].index);
+    const highSlope = (recentHighs[1].price - recentHighs[0].price) / (recentHighs[1].index - recentHighs[0].index);
+    const lowSlope = (recentLows[1].price - recentLows[0].price) / (recentLows[1].index - recentLows[0].index);
     
     return Math.abs(highSlope + lowSlope) / 2;
 }
 
 function filterRelevantLevels(levels, currentPrice) {
+    if (!levels || levels.length === 0) return [];
     return levels.filter(level => {
         const distance = Math.abs(level.price - currentPrice) / currentPrice;
-        return distance < 0.05; // Within 5%
+        return distance < 0.05;
     });
 }
 
@@ -372,12 +371,16 @@ function calculateRealConfidence(results) {
     let maxScore = 0;
     
     for (const [tf, data] of Object.entries(results.timeframes)) {
+        if (!data.analysis) continue;
+        
         const weight = getTimeframeWeight(tf);
         const tfScore = calculateTFScoreICT(data.analysis);
         
         totalScore += tfScore * weight;
         maxScore += 100 * weight;
     }
+    
+    if (maxScore === 0) return 0;
     
     const confluenceBonus = calculateConfluenceBonus(results);
     totalScore += confluenceBonus;
@@ -391,23 +394,21 @@ function getTimeframeWeight(tf) {
 }
 
 function calculateTFScoreICT(analysis) {
+    if (!analysis) return 0;
+    
     let score = 0;
     
-    // Market Structure (0-35 points)
     score += analysis.marketStructure.trend !== 'neutral' ? 25 : 0;
     score += analysis.marketStructure.breakOfStructure ? 15 : 0;
     score += analysis.marketStructure.changeOfCharacter ? 8 : 0;
     
-    // Volume Analysis (0-25 points)
     if (analysis.volumeAnalysis.volumeDelta) {
         score += Math.min(30, (analysis.volumeAnalysis.volumeDelta - 1) * 60);
     }
     
-    // Order Blocks & FVG (0-35 points)
     score += Math.min(25, analysis.orderBlocks.length * 4);
     score += Math.min(20, analysis.fairValueGaps.length * 3);
     
-    // Liquidity (0-20 points)
     if (analysis.liquidityLevels.length > 0) {
         score += 15;
         const nearLiquidity = analysis.liquidityLevels.some(level => 
@@ -421,7 +422,7 @@ function calculateTFScoreICT(analysis) {
 
 function calculateConfluenceBonus(results) {
     let bonus = 0;
-    const timeframes = Object.values(results.timeframes);
+    const timeframes = Object.values(results.timeframes).filter(tf => tf.analysis);
     
     const bullishSignals = timeframes.filter(tf => 
         tf.analysis.trend === 'bullish' && 
@@ -443,6 +444,8 @@ function calculateMultiTFBias(timeframes) {
     let bias = 0;
     
     timeframes.forEach((tf, index) => {
+        if (!tf.analysis) return;
+        
         const weight = TIMEFRAMES[index].weight;
         const analysis = tf.analysis;
         
@@ -459,7 +462,6 @@ function calculateMultiTFBias(timeframes) {
 }
 
 function findOptimalLongEntry(currentPrice, analysis, multiTimeframeAnalysis) {
-    // Priority 1: Bullish Order Blocks
     const relevantOBs = analysis.orderBlocks.filter(ob => 
         ob.type === 'bullish' && currentPrice > ob.low && currentPrice < ob.high * 1.02
     );
@@ -471,7 +473,6 @@ function findOptimalLongEntry(currentPrice, analysis, multiTimeframeAnalysis) {
         return bestOB.low * 0.998;
     }
     
-    // Priority 2: Bullish FVG
     const relevantFVGs = analysis.fairValueGaps.filter(fvg => 
         fvg.type === 'bullish' && currentPrice > fvg.low && currentPrice < fvg.high
     );
@@ -481,7 +482,6 @@ function findOptimalLongEntry(currentPrice, analysis, multiTimeframeAnalysis) {
         return Math.max(bestFVG.low, currentPrice * 0.995);
     }
     
-    // Fallback: Support levels
     const supports = analysis.liquidityLevels
         .filter(level => level.type === 'support')
         .map(level => level.price)
@@ -496,7 +496,6 @@ function findOptimalLongEntry(currentPrice, analysis, multiTimeframeAnalysis) {
 }
 
 function findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis) {
-    // Priority 1: Bearish Order Blocks
     const relevantOBs = analysis.orderBlocks.filter(ob => 
         ob.type === 'bearish' && currentPrice < ob.high && currentPrice > ob.low * 0.98
     );
@@ -508,7 +507,6 @@ function findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis) {
         return bestOB.high * 1.002;
     }
     
-    // Priority 2: Bearish FVG
     const relevantFVGs = analysis.fairValueGaps.filter(fvg => 
         fvg.type === 'bearish' && currentPrice < fvg.high && currentPrice > fvg.low
     );
@@ -518,7 +516,6 @@ function findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis) {
         return Math.min(bestFVG.high, currentPrice * 1.005);
     }
     
-    // Fallback: Resistance levels
     const resistances = analysis.liquidityLevels
         .filter(level => level.type === 'resistance')
         .map(level => level.price)
@@ -534,7 +531,6 @@ function findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis) {
 
 function calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis) {
     const atr = analysis.atr;
-    const currentPrice = analysis.price;
     
     if (direction === 'LONG') {
         const supports = analysis.liquidityLevels
@@ -571,7 +567,6 @@ function calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalys
 function calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis) {
     const risk = Math.abs(entry - sl);
     const atr = analysis.atr;
-    const currentPrice = analysis.price;
     
     if (direction === 'LONG') {
         const nearbyResistances = analysis.liquidityLevels
@@ -624,7 +619,6 @@ function calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframe
 function validateLevels(entry, sl, tp, currentPrice, atr) {
     const maxDistance = atr * 2.5;
     
-    // Kiểm tra SL không quá xa
     if (Math.abs(entry - sl) > maxDistance) {
         if (entry > sl) {
             sl = entry - (atr * 1.0);
@@ -633,7 +627,6 @@ function validateLevels(entry, sl, tp, currentPrice, atr) {
         }
     }
     
-    // Kiểm tra TP không quá xa
     if (Math.abs(entry - tp) > maxDistance) {
         if (entry < tp) {
             tp = entry + (atr * 1.5);
@@ -642,15 +635,16 @@ function validateLevels(entry, sl, tp, currentPrice, atr) {
         }
     }
     
-    // Đảm bảo R:R hợp lý (0.8 đến 3.0)
     const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    let adjustedTp = tp;
+    
     if (rr < 0.8) {
-        tp = entry + (entry - sl) * 1.0;
+        adjustedTp = entry + (entry - sl) * 1.0;
     } else if (rr > 3.0) {
-        tp = entry + (entry - sl) * 2.0;
+        adjustedTp = entry + (entry - sl) * 2.0;
     }
     
-    return { entry, sl, tp, rr: rr.toFixed(2) };
+    return { entry, sl, tp: adjustedTp, rr: rr.toFixed(2) };
 }
 
 function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeAnalysis) {
@@ -688,7 +682,7 @@ function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeA
 function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction) {
     const riskAmount = accountBalance * (riskPercent / 100);
     const riskPerUnit = Math.abs(entry - sl);
-    const size = (riskAmount / riskPerUnit).toFixed(4);
+    const size = riskPerUnit === 0 ? 0 : (riskAmount / riskPerUnit).toFixed(4);
     
     return {
         size: size,
@@ -697,7 +691,6 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
 }
 
 // --- HÀM CHÍNH ĐỂ GỌI TỪ BÊN NGOÀI ---
-
 async function analyzeSymbol(symbol) {
     try {
         const results = {
@@ -708,7 +701,7 @@ async function analyzeSymbol(symbol) {
             ictConcepts: {}
         };
 
-        // Analyze each timeframe với ICT
+        // Analyze each timeframe với fallback
         for (const tf of TIMEFRAMES) {
             try {
                 const candles = await loadCandles(symbol, tf.interval, 300);
@@ -720,18 +713,18 @@ async function analyzeSymbol(symbol) {
                     };
                 }
             } catch (error) {
-                console.error(`Error analyzing ${symbol} ${tf.label}:`, error.message);
+                console.log(`⚠️ Bỏ qua ${tf.label} cho ${symbol}: ${error.message}`);
+                // Tiếp tục với timeframe khác
             }
         }
 
-        // Generate trading signals với ICT
         const timeframes = Object.values(results.timeframes);
         if (timeframes.length === 0) {
             return {
                 symbol,
                 direction: 'NO_TRADE',
                 confidence: 0,
-                reason: 'No timeframe data available'
+                reason: 'Không thể tải dữ liệu từ bất kỳ nguồn nào'
             };
         }
 
@@ -739,7 +732,6 @@ async function analyzeSymbol(symbol) {
         const bias = calculateMultiTFBias(timeframes);
         const confidence = calculateRealConfidence(results);
 
-        // Check minimum confidence
         if (confidence < 60) {
             return {
                 symbol,
@@ -760,7 +752,6 @@ async function analyzeSymbol(symbol) {
             };
         }
         
-        // Calculate smart levels
         const primaryAnalysis = timeframes.find(tf => tf.analysis && tf.analysis.confidence > 70) || timeframes[0];
         if (!primaryAnalysis.analysis) {
             return {
@@ -773,7 +764,6 @@ async function analyzeSymbol(symbol) {
         
         const levels = calculateSmartLevels(direction, currentPrice, primaryAnalysis.analysis, results);
         
-        // Calculate position size
         const positionData = calculatePositionSize(2, 1000, parseFloat(levels.entry), parseFloat(levels.sl), direction);
         
         return {
@@ -789,7 +779,7 @@ async function analyzeSymbol(symbol) {
         };
 
     } catch (error) {
-        console.error(`Error analyzing ${symbol}:`, error);
+        console.error(`💥 Lỗi nghiêm trọng khi phân tích ${symbol}:`, error.message);
         return {
             symbol,
             direction: 'NO_TRADE',
