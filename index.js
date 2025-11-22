@@ -45,7 +45,7 @@ const TARGET_COINS = [
 ];
 
 // --- HỆ THỐNG ADMIN & KEY ---
-const ADMIN_IDS = ['7760459637']; // Thay bằng username admin thực tế
+const ADMIN_IDS = ['8560521739']; // Thay bằng username admin thực tế
 const activationKeys = new Map(); // Lưu trữ keys: {type, created, expires, used, usedBy}
 const subscribedUsers = new Map(); // Users đã kích hoạt: {userInfo, activatedAt, keyUsed}
 
