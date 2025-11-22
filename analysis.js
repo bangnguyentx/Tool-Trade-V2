@@ -512,16 +512,16 @@ function calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalys
         const supports = analysis.liquidityLevels
             .filter(level => level.type === 'support')
             .map(level => level.price)
-            .filter(price => price < entry && price >= entry - (atr * 1.5)) // Giới hạn trong 1.5 ATR
+            .filter(price => price < entry && price >= entry - (atr * 1.5))
             .sort((a, b) => b - a);
         
         if (supports.length > 0) {
             const nearestSupport = supports[0];
-            const atrBasedSL = entry - (atr * 0.6); // Giảm từ 1.5 xuống 0.6 ATR
+            const atrBasedSL = entry - (atr * 0.6);
             return Math.min(nearestSupport, atrBasedSL);
         }
         
-        return entry - (atr * 0.8); // Giảm từ 2.0 xuống 0.8 ATR
+        return entry - (atr * 0.8);
         
     } else {
         const resistances = analysis.liquidityLevels
@@ -546,39 +546,34 @@ function calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframe
     const currentPrice = analysis.price;
     
     if (direction === 'LONG') {
-        // Tìm kháng cự GẦN NHẤT trong phạm vi hợp lý
         const nearbyResistances = analysis.liquidityLevels
             .filter(level => level.type === 'resistance')
             .map(level => level.price)
-            .filter(price => price > entry && price <= entry + (atr * 1.2)) // Giới hạn trong 1.2 ATR
-            .sort((a, b) => a - b); // Sắp xếp từ nhỏ đến lớn
+            .filter(price => price > entry && price <= entry + (atr * 1.2))
+            .sort((a, b) => a - b);
         
         let tp;
         
         if (nearbyResistances.length > 0) {
-            // Lấy kháng cự GẦN nhất
             tp = nearbyResistances[0];
         } else {
-            // Fallback: TP dựa trên ATR với tỷ lệ hợp lý
-            tp = entry + (atr * 0.8); // Giảm từ 2.5 risk xuống 0.8 ATR
+            tp = entry + (atr * 0.8);
         }
         
-        // ĐẢM BẢO R:R TỐI THIỂU 1:1 VÀ TỐI ĐA 2:1
-        const minTP = entry + risk * 1.2;  // R:R 1.2
-        const maxTP = entry + risk * 2.0;  // R:R tối đa 2.0
+        const minTP = entry + risk * 1.2;
+        const maxTP = entry + risk * 2.0;
         
-        tp = Math.max(tp, minTP); // Đảm bảo tối thiểu
-        tp = Math.min(tp, maxTP); // Giới hạn tối đa
+        tp = Math.max(tp, minTP);
+        tp = Math.min(tp, maxTP);
         
         return tp;
         
     } else {
-        // Tương tự cho SHORT
         const nearbySupports = analysis.liquidityLevels
             .filter(level => level.type === 'support')
             .map(level => level.price)
             .filter(price => price < entry && price >= entry - (atr * 1.2))
-            .sort((a, b) => b - a); // Sắp xếp từ lớn đến nhỏ
+            .sort((a, b) => b - a);
         
         let tp;
         
@@ -606,7 +601,6 @@ function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeA
         const sl = calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis);
         const tp = calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis);
         
-        // VALIDATE và điều chỉnh levels
         const validated = validateLevels(entry, sl, tp, currentPrice, atr);
         
         return { 
@@ -616,7 +610,6 @@ function calculateSmartLevels(direction, currentPrice, analysis, multiTimeframeA
             rr: validated.rr
         };
     } else {
-        // Tương tự cho SHORT
         const entry = findOptimalShortEntry(currentPrice, analysis, multiTimeframeAnalysis);
         const sl = calculateSmartStopLoss(entry, direction, analysis, multiTimeframeAnalysis);
         const tp = calculateSmartTakeProfit(entry, sl, direction, analysis, multiTimeframeAnalysis);
@@ -644,25 +637,33 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
 }
 
 function validateLevels(entry, sl, tp, currentPrice, atr) {
-    const maxDistance = atr * 2.5; // Khoảng cách tối đa 2.5 ATR
+    const maxDistance = atr * 2.5;
     
-    // Kiểm tra SL không quá xa
     if (Math.abs(entry - sl) > maxDistance) {
-        if (entry > sl) { // LONG
+        if (entry > sl) {
             sl = entry - (atr * 1.0);
-        } else { // SHORT
+        } else {
             sl = entry + (atr * 1.0);
         }
     }
     
-    // Kiểm tra TP không quá xa
     if (Math.abs(entry - tp) > maxDistance) {
-        if (entry < tp) { // LONG
+        if (entry < tp) {
             tp = entry + (atr * 1.5);
-        } else { // SHORT
+        } else {
             tp = entry - (atr * 1.5);
         }
     }
+    
+    const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
+    if (rr < 0.8) {
+        tp = entry + (entry - sl) * 1.0;
+    } else if (rr > 3.0) {
+        tp = entry + (entry - sl) * 2.0;
+    }
+    
+    return { entry, sl, tp, rr: rr.toFixed(2) };
+}
     
     // Đảm bảo R:R hợp lý (0.8 đến 3.0)
     const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
@@ -698,11 +699,9 @@ async function analyzeSymbol(symbol) {
                 };
             } catch (error) {
                 console.error(`Error analyzing ${tf.label}:`, error.message);
-                // Continue with other timeframes
             }
         }
 
-        // Generate trading signals với ICT
         const timeframes = Object.values(results.timeframes);
         if (timeframes.length === 0) {
             return {
@@ -717,7 +716,6 @@ async function analyzeSymbol(symbol) {
         const bias = calculateMultiTFBias(timeframes);
         const confidence = calculateRealConfidence(results);
 
-        // Check minimum confidence
         if (confidence < 60) {
             return {
                 symbol,
@@ -738,11 +736,9 @@ async function analyzeSymbol(symbol) {
             };
         }
         
-        // Calculate smart levels
         const primaryAnalysis = timeframes.find(tf => tf.analysis.confidence > 70) || timeframes[0];
         const levels = calculateSmartLevels(direction, currentPrice, primaryAnalysis.analysis, results);
         
-        // Calculate position size
         const positionData = calculatePositionSize(2, 1000, parseFloat(levels.entry), parseFloat(levels.sl), direction);
         
         return {
@@ -750,14 +746,13 @@ async function analyzeSymbol(symbol) {
             direction,
             confidence: Math.round(confidence),
             entry: levels.entry.toFixed(4),
-            sl: levels.sl.toFixed(4),         // ✅ Đã sửa thành sl
-            tp: levels.tp.toFixed(4),         // ✅ Đã sửa thành tp
+            sl: levels.sl.toFixed(4),
+            tp: levels.tp.toFixed(4),
             rr: levels.rr,
             positionSize: positionData.size,
             maxLoss: positionData.maxLoss
         };
 
-        
     } catch (error) {
         console.error(`Error analyzing ${symbol}:`, error);
         return {
