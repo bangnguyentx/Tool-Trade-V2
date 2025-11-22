@@ -200,13 +200,18 @@ async function runAutoAnalysis() {
     console.log(`🔄 Starting Auto Analysis at ${now.format('HH:mm')} - ${subscribedUsers.size} users`);
     
     let signalsFound = 0;
+    let analyzedCount = 0;
     
     try {
         for (const coin of TARGET_COINS) {
-            await new Promise(r => setTimeout(r, 1500));
+            analyzedCount++;
+            
+            // Dynamic delay: tăng dần khi phân tích nhiều coin
+            const dynamicDelay = 3000 + (Math.floor(analyzedCount / 10) * 1000); // 3-8 giây
+            await new Promise(r => setTimeout(r, dynamicDelay));
 
             try {
-                console.log(`🔍 Analyzing ${coin}...`);
+                console.log(`🔍 Analyzing ${coin} (${analyzedCount}/${TARGET_COINS.length})...`);
                 const result = await analyzeSymbol(coin);
                 
                 if (result && result.direction !== 'NEUTRAL' && result.direction !== 'NO_TRADE') {
@@ -218,7 +223,8 @@ async function runAutoAnalysis() {
                         console.log(`✅ Signal found: ${coin} ${result.direction} (${result.confidence}%)`);
                         await broadcastToAllUsers(msg);
                         
-                        await new Promise(r => setTimeout(r, 2000));
+                        // Delay sau khi gửi tín hiệu thành công
+                        await new Promise(r => setTimeout(r, 3000));
                     } else {
                         console.log(`⏭️ Skip ${coin}: Confidence ${result.confidence}% (need 60-100%)`);
                     }
@@ -227,11 +233,17 @@ async function runAutoAnalysis() {
                 }
             } catch (coinError) {
                 console.error(`❌ Error analyzing ${coin}:`, coinError.message);
+                
+                // Nếu lỗi quá nhiều, dừng phân tích tạm thời
+                if (coinError.message.includes('418') || coinError.message.includes('429')) {
+                    console.log('🚨 Rate limit detected, waiting 30 seconds...');
+                    await new Promise(r => setTimeout(r, 30000));
+                }
                 continue;
             }
         }
         
-        console.log(`🎯 Auto analysis completed. Found ${signalsFound} signals`);
+        console.log(`🎯 Auto analysis completed. Found ${signalsFound} signals out of ${TARGET_COINS.length} coins`);
         
     } catch (error) {
         console.error('💥 Critical error in auto analysis:', error);
