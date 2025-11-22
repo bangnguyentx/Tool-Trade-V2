@@ -41,10 +41,10 @@ const TARGET_COINS = [
     'BCHUSDT', 'FILUSDT', 'ALGOUSDT', 'NEARUSDT', 'UNIUSDT',
     
     // === TOP 20 MEME/VOLATILE (Nhiều tín hiệu) ===
-    'DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT',
+    'DOGEUSDT', 'ZECUSDT', '1000PEPEUSDT', 'ZENUSDT', 'HYPEUSDT',
     'WIFUSDT', 'MEMEUSDT', 'BOMEUSDT', 'POPCATUSDT', 'MYROUSDT',
     'DOGUSDT', 'TOSHIUSDT', 'MOGUSDT', 'TURBOUSDT', 'NFPUSDT',
-    ' PEOPLEUSDT', 'AIDOGEUSDT', 'SMURFCATUSDT', 'TRUMPUSDT', 'WSMUSDT',
+    ' PEOPLEUSDT', 'ARC', 'BTCDOM', 'TRUMPUSDT', 'DASHUSDT',
     
     // === TOP 20 ALTCOIN TRENDING ===
     'APTUSDT', 'ARBUSDT', 'OPUSDT', 'SUIUSDT', 'SEIUSDT',
@@ -114,23 +114,30 @@ ${icon} Entry: ${fmt(data.entry)}
 }
 
 // Hàm broadcast tin nhắn đến tất cả users
-function broadcastToAllUsers(message) {
+async function broadcastToAllUsers(message) {
     let successCount = 0;
     let failCount = 0;
     
-    subscribedUsers.forEach((user, chatId) => {
-        bot.sendMessage(chatId, message).then(() => {
+    for (const [chatId, user] of subscribedUsers) {
+        try {
+            await bot.sendMessage(chatId, message);
             successCount++;
-        }).catch(err => {
-            console.log(`❌ Không gửi được cho ${user.username || user.first_name}: ${err.message}`);
+            // Thêm delay để tránh spam Telegram API
+            await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (err) {
+            console.log(`❌ Lỗi gửi cho ${user.username || user.first_name}:`, err.code, err.message);
             failCount++;
-            // Nếu user đã chặn bot, xóa khỏi danh sách
+            
+            // Xử lý các loại lỗi cụ thể
             if (err.response && err.response.statusCode === 403) {
                 subscribedUsers.delete(chatId);
                 console.log(`🗑️ Đã xóa user bị chặn: ${user.username || user.first_name}`);
+            } else if (err.code === 'EFATAL' || err.code === 'ETELEGRAM') {
+                console.log(`📡 Lỗi kết nối Telegram, thử lại sau...`);
+                // Có thể thêm logic retry ở đây
             }
-        });
-    });
+        }
+    }
     
     console.log(`📤 Broadcast: ${successCount} thành công, ${failCount} thất bại`);
     return { success: successCount, fail: failCount };
