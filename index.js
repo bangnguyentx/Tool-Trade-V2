@@ -5,11 +5,7 @@ const express = require('express');
 const { analyzeSymbol } = require('./analysis');
 
 // --- CẤU HÌNH ---
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-    console.error('❌ TELEGRAM_BOT_TOKEN is required in environment variables');
-    process.exit(1);
-}
+const token = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN_HERE'; 
 
 // Khởi tạo Express trước
 const app = express();
@@ -18,7 +14,8 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => {
     res.json({ 
         status: 'AI Trading Bot V3 is Running...',
-        timestamp: new Date().toISOString()
+        subscribedUsers: subscribedUsers.size,
+        lastSignalCount: signalCountToday
     });
 });
 
@@ -26,7 +23,8 @@ app.get('/health', (req, res) => {
     res.json({ 
         status: 'healthy',
         uptime: process.uptime(),
-        timestamp: new Date().toISOString()
+        users: subscribedUsers.size,
+        signals: signalCountToday
     });
 });
 
@@ -34,7 +32,7 @@ const server = app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
 });
 
-// --- CẤU HÌNH BOT CHỐNG LỖI ---
+// --- CẤU HÌNH BOT CHỐNG LỖI POLLING ---
 let bot;
 try {
     bot = new TelegramBot(token, { 
@@ -46,7 +44,6 @@ try {
             }
         }
     });
-    
     console.log('✅ Bot initialized successfully');
 } catch (error) {
     console.error('❌ Failed to initialize bot:', error.message);
@@ -55,12 +52,8 @@ try {
 
 // Bắt lỗi polling để không bị crash app
 bot.on("polling_error", (err) => {
-    console.log(`[Polling Error] ${err.code}: ${err.message}`);
-    if (err.code === 'EFATAL') {
-        console.log('🔄 Restarting bot due to fatal error...');
-        setTimeout(() => {
-            process.exit(1);
-        }, 5000);
+    if (err.code !== 'EFATAL') {
+        console.log(`[Polling Error] ${err.code}: ${err.message}`);
     }
 });
 
@@ -93,32 +86,7 @@ const subscribedUsers = new Map(); // Users đã kích hoạt: {userInfo, activa
 let signalCountToday = 0;
 let isAutoAnalysisRunning = false;
 
-// --- SERVER EXPRESS (KEEP-ALIVE) ---
-app.get('/', (req, res) => {
-    res.json({ 
-        status: 'AI Trading Bot V3 is Running...',
-        subscribedUsers: subscribedUsers.size,
-        lastSignalCount: signalCountToday
-    });
-});
-
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'healthy',
-        uptime: process.uptime(),
-        users: subscribedUsers.size,
-        signals: signalCountToday
-    });
-});
-
-app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
-});
-
 // --- CÁC HÀM TIỆN ÍCH ---
-
-// --- CÁC HÀM TIỆN ÍCH ---
-
 function getVietnamTime() {
     return moment().tz("Asia/Ho_Chi_Minh");
 }
@@ -162,13 +130,14 @@ function formatSignalMessage(data, signalIndex, source = 'bot') {
         return number > 10 ? number.toFixed(2) : number.toFixed(4);
     };
 
+    // Đảm bảo các trường tồn tại
     const baseMessage = `🤖 Tín hiệu [${signalIndex} trong ngày]
-#${data.symbol.replace('USDT', '')} – [${data.direction}] 📌
+#${(data.symbol || '').replace('USDT', '')} – [${data.direction}] 📌
 
 ${icon} Entry: ${fmt(data.entry)}
 🆗 Take Profit: ${fmt(data.tp)}
 🙅‍♂️ Stop-Loss: ${fmt(data.sl)}
-🪙 Tỉ lệ RR: ${data.rr} (Conf: ${data.confidence}%)`;
+🪙 Tỉ lệ RR: ${data.rr || 'N/A'} (Conf: ${data.confidence || 0}%)`;
 
     const riskWarning = `\n\n🧠 By Tool Bot 
 
@@ -225,7 +194,6 @@ async function runAutoAnalysis() {
     const currentHour = now.hours();
     const currentMinute = now.minutes();
 
-    // Kiểm tra giờ hoạt động
     if (currentHour < 4 || (currentHour === 23 && currentMinute > 30)) {
         console.log('💤 Out of operating hours (04:00 - 23:30). Sleeping...');
         return;
@@ -243,10 +211,10 @@ async function runAutoAnalysis() {
     let analyzedCount = 0;
     
     try {
-        // Phân tích ngẫu nhiên 10-15 coin thay vì tất cả để tránh timeout
+        // Phân tích ngẫu nhiên 15-20 coin để tránh timeout
         const coinsToAnalyze = [...TARGET_COINS]
             .sort(() => Math.random() - 0.5)
-            .slice(0, 10 + Math.floor(Math.random() * 5));
+            .slice(0, 15 + Math.floor(Math.random() * 5));
             
         console.log(`🎯 Will analyze ${coinsToAnalyze.length} coins this cycle`);
         
@@ -267,7 +235,7 @@ async function runAutoAnalysis() {
                         await broadcastToAllUsers(msg);
                         
                         // Delay sau khi gửi tín hiệu
-                        await new Promise(r => setTimeout(r, 2000));
+                        await new Promise(r => setTimeout(r, 3000));
                     } else {
                         console.log(`⏭️ Skip ${coin}: Confidence ${result.confidence}% (need 60-100%)`);
                     }
@@ -280,7 +248,7 @@ async function runAutoAnalysis() {
             }
             
             // Delay giữa các coin
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 5000));
         }
         
         console.log(`🎯 Auto analysis completed. Found ${signalsFound} signals out of ${coinsToAnalyze.length} coins`);
@@ -303,9 +271,28 @@ function checkDailyGreeting() {
     }
 }
 
+// Safe handler để bọc các command
+function safeHandler(handler) {
+    return async (...args) => {
+        try {
+            await handler(...args);
+        } catch (error) {
+            console.error('Handler error:', error);
+            try {
+                const msg = args[0];
+                if (msg && msg.chat) {
+                    await bot.sendMessage(msg.chat.id, '❌ Đã có lỗi xảy ra, vui lòng thử lại sau.');
+                }
+            } catch (sendError) {
+                console.error('Failed to send error message:', sendError);
+            }
+        }
+    };
+}
+
 // --- BOT COMMANDS ---
 // /start - ĐĂNG KÝ NHẬN TIN NHẮN
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, safeHandler((msg) => {
     const chatId = msg.chat.id;
     const user = msg.from;
     
@@ -344,13 +331,13 @@ bot.onText(/\/start/, (msg) => {
         console.log(`✅ Admin subscribed: ${user.username || user.first_name} (ID: ${user.id})`);
     } else {
         // User thường - chỉ gửi lời chào
-        const welcomeMsg = `👋 Chào ${user.first_name || 'Trader'}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🔐 Bạn cần kích hoạt bằng mã code để sử dụng đầy đủ tính năng.\n\n👑GET FREE KEY: @NGONAM89 \n\n💥Sử dụng lệnh: /key <mã_code>`;
+        const welcomeMsg = `👋 Chào ${user.first_name || 'Trader'}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🔐 Bạn cần kích hoạt bằng mã code để sử dụng đầy đủ tính năng.\n\n📝 Sử dụng lệnh: /key <mã_code>`;
         bot.sendMessage(chatId, welcomeMsg);
     }
-});
+}));
 
 // /key - KÍCH HOẠT USER
-bot.onText(/\/key (.+)/, (msg, match) => {
+bot.onText(/\/key (.+)/, safeHandler((msg, match) => {
     const chatId = msg.chat.id;
     const user = msg.from;
     const key = match[1].trim();
@@ -402,10 +389,10 @@ bot.onText(/\/key (.+)/, (msg, match) => {
 
     bot.sendMessage(chatId, `✅ Kích hoạt thành công! Chào mừng bạn đến với AI Trading Bot V3.`, opts);
     console.log(`✅ User activated: ${user.username || user.first_name} với key: ${key}`);
-});
+}));
 
 // /createkey - TẠO MÃ KÍCH HOẠT (ADMIN ONLY)
-bot.onText(/\/createkey (.+)/, (msg, match) => {
+bot.onText(/\/createkey (.+)/, safeHandler((msg, match) => {
     const chatId = msg.chat.id;
     const user = msg.from;
 
@@ -440,10 +427,10 @@ bot.onText(/\/createkey (.+)/, (msg, match) => {
         `Gửi key này cho user để họ kích hoạt bằng lệnh: /key ${key}`,
         { parse_mode: 'HTML' }
     );
-});
+}));
 
 // Xử lý Menu Button
-bot.on('message', async (msg) => {
+bot.on('message', safeHandler(async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
     const userData = subscribedUsers.get(chatId);
@@ -539,10 +526,10 @@ bot.on('message', async (msg) => {
             `❌ ${broadcastResult.fail} gửi thất bại`
         );
     }
-});
+}));
 
 // /analyzesymbol [Coin]
-bot.onText(/\/analyzesymbol (.+)/, async (msg, match) => {
+bot.onText(/\/analyzesymbol (.+)/, safeHandler(async (msg, match) => {
     const chatId = msg.chat.id;
     const userData = subscribedUsers.get(chatId);
     
@@ -596,7 +583,7 @@ bot.onText(/\/analyzesymbol (.+)/, async (msg, match) => {
             { chat_id: chatId, message_id: processingMsg.message_id }
         );
     }
-});
+}));
 
 // Hàm phân tích toàn bộ coin (chỉ admin)
 async function analyzeAllCoins(chatId) {
@@ -664,7 +651,7 @@ async function analyzeAllCoins(chatId) {
 }
 
 // Lệnh /users để xem số lượng users (chỉ admin)
-bot.onText(/\/users/, (msg) => {
+bot.onText(/\/users/, safeHandler((msg) => {
     const chatId = msg.chat.id;
     const userData = subscribedUsers.get(chatId);
     
@@ -679,13 +666,17 @@ bot.onText(/\/users/, (msg) => {
     });
     
     bot.sendMessage(chatId, userList, { parse_mode: 'HTML' });
-});
+}));
 
 // Thiết lập Interval
-const ANALYSIS_INTERVAL = 2 * 60 * 60 * 1000;
+const ANALYSIS_INTERVAL = 2 * 60 * 60 * 1000; // 2 giờ
 setInterval(runAutoAnalysis, ANALYSIS_INTERVAL);
-setInterval(checkDailyGreeting, 60 * 1000);
-setTimeout(() => { runAutoAnalysis(); }, 10000);
+setInterval(checkDailyGreeting, 60 * 1000); // Kiểm tra mỗi phút
+
+// Chạy auto analysis lần đầu sau 10 giây
+setTimeout(() => { 
+    runAutoAnalysis(); 
+}, 10000);
 
 console.log('🤖 Bot is running with improved polling...');
 console.log(`⏰ Auto analysis every 2 hours (04:00 - 23:30)`);
