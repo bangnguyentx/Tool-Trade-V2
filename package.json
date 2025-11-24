@@ -5,8 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -17,11 +16,5 @@
   },
   "engines": {
     "node": ">=16.0.0"
-  },
-  "keywords": [
-    "trading",
-    "bot",
-    "crypto",
-    "analysis"
-  ]
+  }
 }
