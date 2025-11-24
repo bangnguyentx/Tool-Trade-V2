@@ -41,7 +41,7 @@ async function loadCandles(symbol, interval, limit = 500) {
             
             const url = source.klines(symbol, interval, limit);
             const response = await axios.get(url, {
-                timeout: 15000, // Tăng timeout lên 15 giây
+                timeout: 15000,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': 'application/json'
@@ -100,7 +100,7 @@ async function loadCandles(symbol, interval, limit = 500) {
     throw new Error(`Tất cả nguồn đều thất bại cho ${symbol} ${interval}`);
 }
 
-// --- CÁC HÀM PHÂN TÍCH GIỮ NGUYÊN ---
+// --- CÁC HÀM PHÂN TÍCH ---
 function calculateATR(candles, period = 14) {
     if (!candles || candles.length < period + 1) return 0;
     
@@ -123,6 +123,12 @@ function calculateATR(candles, period = 14) {
 }
 
 function isSwingHigh(highs, index, lookback = 3) {
+    for (let i = 1; i <= lookback; i++) {
+        if (index - i >= 0 && highs[index] <= highs[index - i]) return false;
+        if (index + i < highs.length && highs[index] <= highs[index + i]) return false;
+    }
+    return true;
+}
 
 function isSwingLow(lows, index, lookback = 3) {
     for (let i = 1; i <= lookback; i++) {
@@ -690,11 +696,6 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
     };
 }
 
-function getTimeframeWeight(tf) {
-    const weights = { 'D1': 1.5, 'H4': 1.3, 'H1': 1.1, '15M': 0.8 };
-    return weights[tf] || 1.0;
-}
-    
 // --- HÀM CHÍNH ĐỂ GỌI TỪ BÊN NGOÀI ---
 async function analyzeSymbol(symbol) {
     try {
