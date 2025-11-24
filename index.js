@@ -225,6 +225,7 @@ async function runAutoAnalysis() {
     const currentHour = now.hours();
     const currentMinute = now.minutes();
 
+    // Kiểm tra giờ hoạt động
     if (currentHour < 4 || (currentHour === 23 && currentMinute > 30)) {
         console.log('💤 Out of operating hours (04:00 - 23:30). Sleeping...');
         return;
@@ -242,18 +243,21 @@ async function runAutoAnalysis() {
     let analyzedCount = 0;
     
     try {
-        for (const coin of TARGET_COINS) {
+        // Phân tích ngẫu nhiên 10-15 coin thay vì tất cả để tránh timeout
+        const coinsToAnalyze = [...TARGET_COINS]
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 10 + Math.floor(Math.random() * 5));
+            
+        console.log(`🎯 Will analyze ${coinsToAnalyze.length} coins this cycle`);
+        
+        for (const coin of coinsToAnalyze) {
             analyzedCount++;
             
-            // TĂNG DELAY LÊN 8-12 GIÂY để tránh rate limit
-            const baseDelay = 8000 + Math.random() * 4000; // 8-12 giây ngẫu nhiên
-            await new Promise(r => setTimeout(r, baseDelay));
-
             try {
-                console.log(`🔍 Analyzing ${coin} (${analyzedCount}/${TARGET_COINS.length})...`);
+                console.log(`🔍 Analyzing ${coin} (${analyzedCount}/${coinsToAnalyze.length})...`);
                 const result = await analyzeSymbol(coin);
                 
-                if (result && result.direction !== 'NEUTRAL' && result.direction !== 'NO_TRADE') {
+                if (result && result.direction && result.direction !== 'NEUTRAL' && result.direction !== 'NO_TRADE') {
                     if (result.confidence >= 60 && result.confidence <= 100) {
                         signalCountToday++;
                         signalsFound++;
@@ -263,7 +267,7 @@ async function runAutoAnalysis() {
                         await broadcastToAllUsers(msg);
                         
                         // Delay sau khi gửi tín hiệu
-                        await new Promise(r => setTimeout(r, 3000));
+                        await new Promise(r => setTimeout(r, 2000));
                     } else {
                         console.log(`⏭️ Skip ${coin}: Confidence ${result.confidence}% (need 60-100%)`);
                     }
@@ -274,9 +278,12 @@ async function runAutoAnalysis() {
                 console.error(`❌ Error analyzing ${coin}:`, coinError.message);
                 continue;
             }
+            
+            // Delay giữa các coin
+            await new Promise(r => setTimeout(r, 3000));
         }
         
-        console.log(`🎯 Auto analysis completed. Found ${signalsFound} signals out of ${TARGET_COINS.length} coins`);
+        console.log(`🎯 Auto analysis completed. Found ${signalsFound} signals out of ${coinsToAnalyze.length} coins`);
         
     } catch (error) {
         console.error('💥 Critical error in auto analysis:', error);
@@ -337,7 +344,7 @@ bot.onText(/\/start/, (msg) => {
         console.log(`✅ Admin subscribed: ${user.username || user.first_name} (ID: ${user.id})`);
     } else {
         // User thường - chỉ gửi lời chào
-        const welcomeMsg = `👋 Chào ${user.first_name || 'Trader'}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🔐 Bạn cần kích hoạt bằng mã code để sử dụng đầy đủ tính năng.\n\n📝 Sử dụng lệnh: /key <mã_code>`;
+        const welcomeMsg = `👋 Chào ${user.first_name || 'Trader'}!\n🧠 ĐÂY LÀ TOOL AI TRADING V3.\n\n🔐 Bạn cần kích hoạt bằng mã code để sử dụng đầy đủ tính năng.\n\n👑GET FREE KEY: @NGONAM89 \n\n💥Sử dụng lệnh: /key <mã_code>`;
         bot.sendMessage(chatId, welcomeMsg);
     }
 });
