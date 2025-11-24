@@ -41,7 +41,7 @@ async function loadCandles(symbol, interval, limit = 500) {
             
             const url = source.klines(symbol, interval, limit);
             const response = await axios.get(url, {
-                timeout: 10000,
+                timeout: 15000, // Tăng timeout lên 15 giây
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': 'application/json'
@@ -53,7 +53,10 @@ async function loadCandles(symbol, interval, limit = 500) {
                 
                 // Xử lý định dạng response khác nhau
                 if (source.name.includes('Bybit')) {
-                    // Bybit response format
+                    // Kiểm tra cấu trúc dữ liệu Bybit
+                    if (!response.data.result || !response.data.result.list) {
+                        throw new Error('Invalid Bybit response format');
+                    }
                     candles = response.data.result.list.map(candle => ({
                         open: parseFloat(candle[1]),
                         high: parseFloat(candle[2]),
@@ -63,7 +66,10 @@ async function loadCandles(symbol, interval, limit = 500) {
                         t: parseFloat(candle[0])
                     })).reverse();
                 } else {
-                    // Binance format
+                    // Binance format - kiểm tra nếu là array
+                    if (!Array.isArray(response.data)) {
+                        throw new Error('Invalid Binance response format');
+                    }
                     candles = response.data.map(candle => ({
                         open: parseFloat(candle[1]),
                         high: parseFloat(candle[2]),
@@ -74,20 +80,20 @@ async function loadCandles(symbol, interval, limit = 500) {
                     }));
                 }
 
-                if (candles.length > 0) {
+                if (candles && candles.length > 0) {
                     console.log(`✅ Thành công với ${source.name}: ${candles.length} nến`);
                     return candles;
                 }
             }
         } catch (error) {
-            console.log(`❌ ${source.name} thất bại: ${error.response?.status || error.code}`);
+            console.log(`❌ ${source.name} thất bại: ${error.response?.status || error.code || error.message}`);
             
             // Nếu là lỗi 418, chờ lâu hơn trước khi thử nguồn tiếp theo
             if (error.response?.status === 418) {
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
             
-            continue; // Thử nguồn tiếp theo
+            continue;
         }
     }
     
@@ -117,12 +123,6 @@ function calculateATR(candles, period = 14) {
 }
 
 function isSwingHigh(highs, index, lookback = 3) {
-    for (let i = 1; i <= lookback; i++) {
-        if (index - i >= 0 && highs[index] <= highs[index - i]) return false;
-        if (index + i < highs.length && highs[index] <= highs[index + i]) return false;
-    }
-    return true;
-}
 
 function isSwingLow(lows, index, lookback = 3) {
     for (let i = 1; i <= lookback; i++) {
@@ -690,6 +690,11 @@ function calculatePositionSize(riskPercent, accountBalance, entry, sl, direction
     };
 }
 
+function getTimeframeWeight(tf) {
+    const weights = { 'D1': 1.5, 'H4': 1.3, 'H1': 1.1, '15M': 0.8 };
+    return weights[tf] || 1.0;
+}
+    
 // --- HÀM CHÍNH ĐỂ GỌI TỪ BÊN NGOÀI ---
 async function analyzeSymbol(symbol) {
     try {
