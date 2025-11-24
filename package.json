@@ -1,17 +1,27 @@
 {
-  "name": "ai-trading-bot-pro",
-  "version": "1.0.0",
-  "description": "Telegram Bot ICT V2",
+  "name": "ai-trading-bot",
+  "version": "3.0.0",
+  "description": "AI Trading Bot with Multi-timeframe Analysis",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "moment": "^2.29.4",
-    "moment-timezone": "^0.5.43",
+    "dotenv": "^16.3.0",
+    "express": "^4.18.0",
+    "moment-timezone": "^0.5.40",
     "node-telegram-bot-api": "^0.64.0"
-  }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "trading",
+    "bot",
+    "crypto",
+    "analysis"
+  ]
 }
