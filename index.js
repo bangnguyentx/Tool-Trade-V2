@@ -5,28 +5,68 @@ const express = require('express');
 const { analyzeSymbol } = require('./analysis');
 
 // --- CẤU HÌNH ---
-const token = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_TELEGRAM_BOT_TOKEN_HERE'; 
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (!token) {
+    console.error('❌ TELEGRAM_BOT_TOKEN is required in environment variables');
+    process.exit(1);
+}
 
-// --- CẤU HÌNH BOT CHỐNG LỖI POLLING ---
-const bot = new TelegramBot(token, { 
-    polling: {
-        interval: 300,
-        autoStart: true,
-        params: {
-            timeout: 10
-        }
-    }
+// Khởi tạo Express trước
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'AI Trading Bot V3 is Running...',
+        timestamp: new Date().toISOString()
+    });
 });
+
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'healthy',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+const server = app.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+});
+
+// --- CẤU HÌNH BOT CHỐNG LỖI ---
+let bot;
+try {
+    bot = new TelegramBot(token, { 
+        polling: {
+            interval: 300,
+            autoStart: true,
+            params: {
+                timeout: 10
+            }
+        }
+    });
+    
+    console.log('✅ Bot initialized successfully');
+} catch (error) {
+    console.error('❌ Failed to initialize bot:', error.message);
+    process.exit(1);
+}
 
 // Bắt lỗi polling để không bị crash app
 bot.on("polling_error", (err) => {
-    if (err.code !== 'EFATAL') {
-        console.log(`[Polling Error] ${err.code}: ${err.message}`);
+    console.log(`[Polling Error] ${err.code}: ${err.message}`);
+    if (err.code === 'EFATAL') {
+        console.log('🔄 Restarting bot due to fatal error...');
+        setTimeout(() => {
+            process.exit(1);
+        }, 5000);
     }
 });
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+bot.on("error", (err) => {
+    console.log(`[Bot Error] ${err.message}`);
+});
 
 // TARGET_COINS TỐI ƯU - 60 COIN VOLATILITY CAO
 const TARGET_COINS = [
